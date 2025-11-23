@@ -3,7 +3,7 @@ package com.hmdp.controller;
 
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.User;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
@@ -66,7 +66,8 @@ public class UserController {
 
     @GetMapping("/me")
     public Result me() {
-        User user = UserHolder.getUser();
+        UserDTO user = UserHolder.getUser();
+        log.error("current User {}", user);
         return Result.ok(user);
     }
 

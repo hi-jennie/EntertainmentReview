@@ -1,17 +1,29 @@
 package com.hmdp.interceptor;
 
-import com.hmdp.entity.User;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.utils.UserHolder;
-import org.springframework.lang.Nullable;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 
+// This interceptor is straightforward: it only intercepts requests to APIs that require login.
 public class LoginInterceptor implements HandlerInterceptor {
 
     @Override
+    public boolean preHandle(HttpServletRequest request,
+                             HttpServletResponse response,
+                             Object handler) throws Exception {
+        // 1. get userDTO from threadLocal
+        UserDTO user = UserHolder.getUser();
+        if (user == null) {
+            response.setStatus(401);
+            return false;
+        }
+        return true;
+    }
+
+    /*@Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response,
                              Object handler) throws Exception {
@@ -27,14 +39,8 @@ public class LoginInterceptor implements HandlerInterceptor {
         }
 
         // 3.2 if exists, save the user in ThreadLocal
-        UserHolder.saveUser((User) user);
+        UserHolder.saveUser((UserDTO) user);
         return true;
-    }
-
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, @Nullable Exception ex) throws Exception {
-        // remove the user from ThreadLocal
-        UserHolder.removeUser();
-    }
+    }*/
 
 }
