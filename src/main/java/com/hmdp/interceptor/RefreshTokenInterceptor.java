@@ -29,6 +29,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response,
                              Object handler) throws Exception {
+        System.out.println("=== RefreshTokenInterceptor === " + request.getRequestURI());
         // 1. get header to get token
         String token = request.getHeader("authorization");
 
@@ -46,7 +47,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         }
         // 4. convert userMap to userDTO and save in ThreadLocal
         UserHolder.saveUser(BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false));
-        log.info("current or me", UserHolder.getUser());
+        log.info("current or user {}", UserHolder.getUser());
 
         // 5. refresh the token TTL
         stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);

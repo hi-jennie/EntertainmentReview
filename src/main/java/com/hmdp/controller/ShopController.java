@@ -7,6 +7,7 @@ import com.hmdp.constants.SystemConstants;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.service.IShopService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -21,6 +22,7 @@ import javax.annotation.Resource;
  */
 @RestController
 @RequestMapping("/shop")
+@Slf4j
 public class ShopController {
 
     @Resource
@@ -34,7 +36,8 @@ public class ShopController {
      */
     @GetMapping("/{id}")
     public Result queryShopById(@PathVariable("id") Long id) {
-        return Result.ok(shopService.getById(id));
+        log.info("get shop details by id {}", id);
+        return shopService.queryById(id);
     }
 
     /**
