@@ -10,21 +10,25 @@ import java.util.concurrent.TimeUnit;
 
 public class SimpleRedisLock implements ILock {
 
+    private static final String KEY_PREFIX = "lock:";
+    private static final String ID_PREFIX = UUID.randomUUID().toString(true) + "-";
+    // 提前加载lua脚本
+    // DefaultRedisScript 是 Spring Data Redis 提供的类，用来封装 Lua 脚本，并指定返回类型。
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    // 静态代码块在类 第一次被加载到 JVM 时执行一次。
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setLocation(new ClassPathResource("unlock.lua"));
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
+
     private String name;
     private StringRedisTemplate stringRedisTemplate;
 
     public SimpleRedisLock(String name, StringRedisTemplate stringRedisTemplate) {
         this.name = name;
         this.stringRedisTemplate = stringRedisTemplate;
-    }
-
-    private static final String KEY_PREFIX = "lock:";
-    private static final String ID_PREFIX = UUID.randomUUID().toString(true) + "-";
-    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
-    static {
-        UNLOCK_SCRIPT = new DefaultRedisScript<>();
-        UNLOCK_SCRIPT.setLocation(new ClassPathResource("unlock.lua"));
-        UNLOCK_SCRIPT.setResultType(Long.class);
     }
 
     @Override

@@ -10,10 +10,12 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.service.IVoucherService;
 import com.hmdp.utils.RedisIdGenerator;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +41,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private ISeckillVoucherService seckillVoucherService;
     @Autowired
     private RedisIdGenerator redisIdGenerator;
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
 
     public Result seckillVoucher(Long voucherId) {
@@ -63,11 +67,31 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
         // 有库存，大概可以开始下单,锁住用户，避免在高并发下对同一用户多次下单
         Long userId = UserHolder.getUser().getId();
-        synchronized (userId.toString().intern()) {
-            // 获取当前类的代理对象，以保证事务能够生效
+        // 2. 分布式锁实现版， 创建锁对象
+        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        boolean isLock = lock.tryLock(1200);
+        if (!isLock) {
+            // 如果获取锁失败，代表已经有线程在处理当前用户的voucher order了
+            return Result.fail("do not repeat the order");
+        }
+
+        // 获取锁成功，执行下单任务
+        try {
             IVoucherOrderService voucherOrderService = (IVoucherOrderService) AopContext.currentProxy();
             return voucherOrderService.getResult(voucherId);
+        } catch (IllegalStateException e) {
+            throw new RuntimeException(e);
+        } finally {
+            lock.unlock();
         }
+
+
+//        1.单机系统下的锁
+//        synchronized (userId.toString().intern()) {
+//            // 获取当前类的代理对象，以保证事务能够生效
+//            IVoucherOrderService voucherOrderService = (IVoucherOrderService) AopContext.currentProxy();
+//            return voucherOrderService.getResult(voucherId);
+//        }
 
     }
 
