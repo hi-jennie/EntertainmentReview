@@ -14,3 +14,10 @@ Content-Type: application/json
   "beginTime": "2025-11-28T00:00:00",
   "endTime": "2025-12-28T20:00:00"
 }
+
+### 秒杀请求
+POST http://localhost:8081/voucher-order/seckill/6
+Content-Type: application/json
+authorization: 5dda45ede24c499eaa29d77c26cb7735
+
+{}

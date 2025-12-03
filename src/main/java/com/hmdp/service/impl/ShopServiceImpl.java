@@ -44,20 +44,20 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public Result queryById(Long id) {
         // Shop shop = queryWithPassThrough(id);
 //        saveShopToRedis(id, CACHE_SHOP_TTL);
-        Shop shop = queryWithLogicalExpire(id);
+        Shop shop = queryWithMutex(id);
         if (shop == null) {
             return Result.fail("shop doesn't exist");
         }
         return Result.ok(shop);
     }
 
-    // 利用逻辑过期时间解决缓存击穿问题：本质问题是避免多线程同时重建缓存业务
+    // 利用逻辑过期时间解决缓存击穿问题：本质问题是避免多线程同时重建缓存业务，本质是保证重建缓存业务的时候只有一个线程去做。
     private Shop queryWithLogicalExpire(Long id) {
         // 查缓存，查RedisData，里面存有过期时间, 存的时候也应该是RedisData）
         String shopKey = CACHE_SHOP_KEY + id;
         String redisDataJson = stringRedisTemplate.opsForValue().get(shopKey);
 
-        // 未击中缓存，按理来说一般是肯定会击中缓存，活动商品都是提前存入缓存的
+        // 未击中缓存，按理来说一般是肯定会击中缓存，活动商品都是提前存入缓存的（所以这里预设是redis有我们缓存的商铺，否则请求不到商铺信息）
         if (StringUtil.isBlank(redisDataJson)) {
             return null;
         }
