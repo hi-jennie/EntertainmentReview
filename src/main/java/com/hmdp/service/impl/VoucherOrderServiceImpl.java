@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -62,6 +63,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_SCRIPT.setResultType(Long.class);
     }
 
+    private volatile boolean running = true;
     @Resource
     private IVoucherService voucherService;
     @Resource
@@ -90,7 +92,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private void init() {
         SECKILL_ORDER_EXECUTOR.submit(() -> {
             String queueName = "stream.orders";
-            while (true) {
+            while (running) {
                 try {
                     //从消息队列中获取订单信息
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
@@ -120,9 +122,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         });
     }
 
+    @PreDestroy
+    public void destroy() {
+        running = false;
+        SECKILL_ORDER_EXECUTOR.shutdown(); // 也可以 shutdownNow()
+    }
+
     private void handlePendingList() {
         String queueName = "stream.orders";
-        while (true) {
+        while (running) {
             try {
                 //从消息队列中获取订单信息
                 List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(

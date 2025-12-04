@@ -20,4 +20,5 @@ public interface IUserService extends IService<User> {
     Result sendSMSCode(String phone, HttpSession session);
 
     Result login(LoginFormDTO loginForm, HttpSession session);
+
 }
