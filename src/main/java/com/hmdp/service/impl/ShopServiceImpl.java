@@ -2,9 +2,12 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.BooleanUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.constants.SystemConstants;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
@@ -12,11 +15,17 @@ import com.hmdp.service.IShopService;
 import com.hmdp.utils.RedisData;
 import jodd.util.StringUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +58,62 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return Result.fail("shop doesn't exist");
         }
         return Result.ok(shop);
+    }
+
+    /**
+     * @param typeId
+     * @param current 代表查第几页的内容
+     * @param x
+     * @param y
+     * @return
+     */
+    public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
+        // 检查坐标是否为空，为空则正常查分页查询
+        if (x == null || y == null) {
+            Page<Shop> page = lambdaQuery()
+                    .eq(Shop::getTypeId, typeId)
+                    .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+            return Result.ok(page.getRecords());
+        }
+        // 计算分页参数
+        int startIdx = (current - 1) * SystemConstants.MAX_PAGE_SIZE;
+        int endIdx = current * SystemConstants.MAX_PAGE_SIZE;
+
+        // 查redis 按距离排序， 分页
+        String key = GEO_SHOPTYPE_PREFIX + typeId;
+        GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate.opsForGeo().search(
+                key,
+                GeoReference.fromCoordinate(x, y),
+                new Distance(5000),
+                RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().limit(endIdx));
+        // limit只能从0 查到endIndex， 无法从startIdx截取，所以查出来之后，手动截取
+        if (results == null) {
+            return Result.ok(Collections.emptyList());
+        }
+        // results 的size是<= endIdx 的, startIdx 表示要从当前查询中跳过的数量
+        List<GeoResult<RedisGeoCommands.GeoLocation<String>>> contents = results.getContent();
+        if (startIdx >= contents.size()) {
+            return Result.ok(Collections.emptyList());
+        }
+        List<Long> ids = new ArrayList<>();
+        Map<Long, Double> distanceMap = new HashMap<>();
+        contents.stream().skip(startIdx).forEach(content -> {
+            // content 里面寸了一个geoLocation和这个location到指定圆心的距离
+            // 从geoLocation里面解析出shopId
+            String shopId = content.getContent().getName();
+            ids.add(Long.valueOf(shopId));
+            // 解析距离
+            Distance distance = content.getDistance();
+            distanceMap.put(Long.valueOf(shopId), distance.getValue());
+        });
+        // 根据shopIds 查询出当前也的shop
+        String join = StrUtil.join(",", ids);
+        List<Shop> shopList = lambdaQuery().in(Shop::getId, ids).last("order by field(id," + join + ")").list();
+        // 对每一个shop还要set 距离用户的距离
+        for (Shop shop : shopList) {
+            shop.setDistance(distanceMap.get(shop.getId()));
+        }
+        return Result.ok(shopList);
     }
 
     // 利用逻辑过期时间解决缓存击穿问题：本质问题是避免多线程同时重建缓存业务，本质是保证重建缓存业务的时候只有一个线程去做。

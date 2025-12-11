@@ -6,23 +6,30 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.constants.SystemConstants;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.hmdp.constants.RedisConstants.BLOG_LIKE_KEY_PREFIX;
+import static com.hmdp.constants.RedisConstants.FEED_KEY_PREFIX;
 
 /**
  * <p>
@@ -33,6 +40,7 @@ import static com.hmdp.constants.RedisConstants.BLOG_LIKE_KEY_PREFIX;
  * @since 2021-12-22
  */
 @Service
+@Slf4j
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
     @Resource
     private IBlogService blogService;
@@ -40,6 +48,8 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private IUserService userService;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private IFollowService followService;
 
     @Override
     public Result queryBlogById(Long id) {
@@ -48,7 +58,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         if (blog == null) {
             return Result.fail("blog does not exist");
         }
-        
+
         // set the info about the user part
         setUserInfo(blog);
         isBlogLiked(blog);
@@ -145,5 +155,71 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         String key = BLOG_LIKE_KEY_PREFIX + blog.getId();
         Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
         blog.setIsLike(score != null);
+    }
+
+
+    public Result saveBlog(Blog blog) {
+        // 获取当前用户
+        UserDTO currUser = UserHolder.getUser();
+        blog.setUserId(currUser.getId());
+        Boolean isSuccess = save(blog);
+        if (!isSuccess) {
+            return Result.fail("Fail to add blog");
+        }
+
+        // 获取当前用户的所有的follower，把blog id推送给他们
+        List<Follow> follows = followService.lambdaQuery()
+                .eq(Follow::getFollowUserId, currUser.getId())
+                .list();
+
+        // 把blog ID存进对应的粉丝的redis账户
+        for (Follow follow : follows) {
+            // get follower id
+            Long userId = follow.getUserId();
+            String key = FEED_KEY_PREFIX + userId;
+            stringRedisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
+        }
+        return Result.ok(blog.getId());
+    }
+
+
+    public Result queryBlogOfFollow(Long max, Integer offset) {
+        // 获取当前用户
+        UserDTO currUser = UserHolder.getUser();
+        String key = FEED_KEY_PREFIX + currUser.getId();
+        // 获取当前用用户的关注feed流，分页查询2条数据
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet().reverseRangeByScoreWithScores(key, 0, max, offset, 2);
+        if (typedTuples == null || typedTuples.isEmpty()) {
+            return Result.ok();
+        }
+
+        List<Long> blogIds = new ArrayList<>(typedTuples.size());
+        long minTime = 0;
+        int currOffset = 1;
+        for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
+            String blogId = typedTuple.getValue();
+            blogIds.add(Long.valueOf(blogId));
+            long time = typedTuple.getScore().longValue();
+            if (time == minTime) {
+                currOffset++;
+            } else {
+                minTime = time;
+                currOffset = 1;
+            }
+        }
+        // 根据blogIds 查询对应的blog
+        List<Blog> blogList = new ArrayList<>();
+        for (Long blogId : blogIds) {
+            Blog blog = getById(blogId);
+            setUserInfo(blog);
+            isBlogLiked(blog);
+            blogList.add(blog);
+        }
+        //封装 返回
+        ScrollResult scrollResult = new ScrollResult();
+        scrollResult.setList(blogList);
+        scrollResult.setOffset(currOffset);
+        scrollResult.setMinTime(minTime);
+        return Result.ok(scrollResult);
     }
 }

@@ -14,16 +14,22 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import static com.hmdp.constants.RedisConstants.USER_SIGN_KEY;
 
 /**
  * <p>
@@ -94,6 +100,58 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 8. set timeout for token
         stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);
         return Result.ok(token);
+    }
+
+    /**
+     * using bitmap to record the sign info
+     * each month has its own bitmap
+     *
+     * @return
+     */
+    public Result sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String yyyyMM = now.format(DateTimeFormatter.ofPattern("yyyyMM"));
+        String key = USER_SIGN_KEY + yyyyMM + userId;
+        //然后要知道我知道设置的是当前这个月的第几天的bit值，第几天的打卡
+        int dayOfMonth = now.getDayOfMonth();
+        // 写入redis
+        stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+        return Result.ok();
+    }
+
+    /**
+     * 查询连续打卡的天数
+     *
+     * @return
+     */
+    public Result signCount() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String yyyyMM = now.format(DateTimeFormatter.ofPattern("yyyyMM"));
+        String key = USER_SIGN_KEY + yyyyMM + userId;
+        //然后要知道我知道设置的是当前这个月的第几天的bit值，第几天的打卡
+        int dayOfMonth = now.getDayOfMonth();
+        // 获取对应的bit值,从 0 开始，要 dayOfMonth 位，无符号；由于可以设置多个子命令，所以List<Long> 会收集多个子命令的返回结果，目前只有一个命令，所以一个返回结果
+        List<Long> result = stringRedisTemplate.opsForValue().bitField(key, BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0));
+
+        if (result == null || result.isEmpty()) {
+            return Result.ok(0);
+        }
+
+        Long num = result.get(0); // 是一个十进制的值
+        // String binaryString = Long.toBinaryString(num); 可以转成二进制字符串然后循环遍历，不适用位运算也可以
+        int counter = 0;
+        while (true) {
+            if ((num & 1) == 1) {
+                counter++;
+            } else {
+                break;
+            }
+            // 向右移一位
+            num >>>= 1;
+        }
+        return Result.ok(counter);
     }
 
 

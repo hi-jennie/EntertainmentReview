@@ -11,4 +11,7 @@ public class RedisConstants {
     public static final String BLOG_LIKE_KEY_PREFIX = "blog:liked:";
     public static final long LOCK_SHOP_TTL = 30L;
     public static final String FOLLOWERS_KEY_PREFIX = "followers:";
+    public static final String FEED_KEY_PREFIX = "feed:";
+    public static final String GEO_SHOPTYPE_PREFIX = "geo:shopType:";
+    public static final String USER_SIGN_KEY = "user:sign";
 }
